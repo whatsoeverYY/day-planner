@@ -29,12 +29,6 @@ body {
   --dp-work: light-dark(#eeeee7, #3b443e);
   --dp-work-stripe: light-dark(#dedfd7, #49544d);
   --dp-danger: light-dark(#a44631, #ffa692);
-  --dp-piano: light-dark(#7860ad, #c7aff6);
-  --dp-piano-fill: light-dark(#eee7fb, #423555);
-  --dp-practice: light-dark(#3f789a, #91c8e8);
-  --dp-practice-fill: light-dark(#e3f1fa, #2a4254);
-  --dp-strength: light-dark(#9c5a2d, #eeb380);
-  --dp-strength-fill: light-dark(#f9ebdb, #4b382d);
   --dp-shadow: light-dark(#22372d26, #00000055);
   --dp-overlay: light-dark(#243c315c, #101713ad);
   color: var(--dp-ink);
@@ -255,17 +249,33 @@ body {
   padding: 0 2px;
   background: var(--dp-work);
 }
-#app :is(.tone-purple,.tone-blue,.tone-orange) {
-  --activity-ink: var(--dp-piano);
-  --activity-bg: var(--dp-piano-fill);
+#app .tone-purple {
+  --activity-ink: light-dark(#7860ad, #c7aff6);
+  --activity-bg: light-dark(#eee7fb, #423555);
 }
 #app .tone-blue {
-  --activity-ink: var(--dp-practice);
-  --activity-bg: var(--dp-practice-fill);
+  --activity-ink: light-dark(#3f789a, #91c8e8);
+  --activity-bg: light-dark(#e3f1fa, #2a4254);
 }
 #app .tone-orange {
-  --activity-ink: var(--dp-strength);
-  --activity-bg: var(--dp-strength-fill);
+  --activity-ink: light-dark(#9c5a2d, #eeb380);
+  --activity-bg: light-dark(#f9ebdb, #4b382d);
+}
+#app .tone-pink {
+  --activity-ink: light-dark(#a05172, #eda7c0);
+  --activity-bg: light-dark(#f8e6ef, #4c3343);
+}
+#app .tone-teal {
+  --activity-ink: light-dark(#307d70, #8ad4c4);
+  --activity-bg: light-dark(#dbf2ec, #294842);
+}
+#app .tone-green {
+  --activity-ink: light-dark(#5b7b42, #b2cc91);
+  --activity-bg: light-dark(#e9f2de, #394733);
+}
+#app .tone-yellow {
+  --activity-ink: light-dark(#806c16, #e3ca75);
+  --activity-bg: light-dark(#f6efc8, #4a432f);
 }
 #app .event-tile {
   position: absolute;

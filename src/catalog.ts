@@ -2,6 +2,10 @@ export const ACTIVITY_TONES = {
   purple: '淡紫',
   blue: '淡蓝',
   orange: '浅橙',
+  pink: '淡粉',
+  teal: '浅青',
+  green: '浅绿',
+  yellow: '浅黄',
 } as const
 
 export type ActivityTone = keyof typeof ACTIVITY_TONES

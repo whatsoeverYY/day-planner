@@ -138,7 +138,10 @@ watch([() => props.catalog.activities, () => props.catalog.habits, () => props.b
             <input ref="nameInputs" v-model="editor.name" type="text" required :disabled="busy">
           </label>
           <label v-if="editor.kind === 'activity'" class="record-field">
-            <span>日历颜色</span>
+            <span>
+              日历颜色
+              <span class="catalog-tone-preview" :class="'tone-' + editor.tone" aria-hidden="true"></span>
+            </span>
             <select v-model="editor.tone" :disabled="busy">
               <option v-for="(label, tone) in ACTIVITY_TONES" :key="tone" :value="tone">{{ label }}</option>
             </select>
@@ -259,6 +262,17 @@ watch([() => props.catalog.activities, () => props.catalog.habits, () => props.b
 
 .catalog-name .tone-dot {
   margin-inline-end: 3px;
+}
+
+.catalog-tone-preview {
+  display: inline-block;
+  width: 18px;
+  height: 11px;
+  margin-inline-start: 4px;
+  vertical-align: -1px;
+  border-inline-start: 2px solid var(--activity-ink);
+  border-radius: 3px;
+  background: var(--activity-bg);
 }
 
 @media (max-width: 650px) {
