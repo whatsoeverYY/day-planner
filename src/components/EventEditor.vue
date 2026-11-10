@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ACTIVITY_NAMES, dayLabel, isDateKey, isWorkday, overlapsWork, weekday } from '../planner'
-import type { Activity, EventDraft, PlannerEvent } from '../planner'
+import type { ActivityDefinition } from '../catalog'
+import { dayLabel, isDateKey, isWorkday, overlapsWork, weekday } from '../planner'
+import type { Activity, EventDraft, PlannerEvent, TimeSelection } from '../planner'
 
 const props = defineProps<{
   date: string
   event: PlannerEvent | null
+  selection?: TimeSelection
+  activities: ActivityDefinition[]
   events: PlannerEvent[]
   saving: boolean
   error: string
@@ -19,10 +22,10 @@ const emit = defineEmits<{
 }>()
 
 const dialog = ref<HTMLDialogElement>()
-const date = ref(props.event?.date ?? props.date)
-const activity = ref<Activity>(props.event?.activity ?? 'piano')
-const start = ref(props.event?.start ?? 18 * 60)
-const end = ref(props.event?.end ?? 19 * 60)
+const date = ref(props.event?.date ?? props.selection?.date ?? props.date)
+const activity = ref<Activity>(props.event?.activity ?? props.activities[0]?.id ?? '')
+const start = ref(props.event?.start ?? props.selection?.start ?? 18 * 60)
+const end = ref(props.event?.end ?? props.selection?.end ?? 19 * 60)
 const allowWork = ref(props.event?.workException ?? false)
 const confirmingRemoval = ref(false)
 
@@ -44,12 +47,20 @@ const eventConflict = computed(() => props.events.some((item) =>
   item.start < end.value &&
   item.end > start.value,
 ))
-const canSave = computed(() => validDate.value && endAllowed(end.value))
+const activityOptions = computed<ActivityDefinition[]>(() => {
+  const previousId = props.event?.activity
+  if (!previousId || props.activities.some(({ id }) => id === previousId)) return props.activities
+  return [...props.activities, { id: previousId, name: previousId, tone: 'purple' }]
+})
+const validActivity = computed(() => activityOptions.value.some(({ id }) => id === activity.value))
+const canSave = computed(() => validActivity.value && validDate.value && endAllowed(end.value))
 const timeParts = computed(() => ({
   start: { hour: Math.floor(start.value / 60), minute: start.value % 60 },
   end: { hour: Math.floor(end.value / 60), minute: end.value % 60 },
 }))
 const messages = computed(() => {
+  if (!activityOptions.value.length) return ['请先在配置中新增活动类型。']
+  if (!validActivity.value) return ['请选择活动类型。']
   if (!validDate.value) return ['请选择有效的日期。']
   if (end.value <= start.value) return ['请选择晚于开始时间的结束时间。']
   if (workConflict.value && !allowWork.value) {
@@ -154,9 +165,9 @@ onBeforeUnmount(() => dialog.value?.close())
       <fieldset class="form-group" :disabled="saving">
         <legend>活动类型</legend>
         <div class="type-options">
-          <label v-for="(label, key) in ACTIVITY_NAMES" :key="key" class="type-option" :class="key">
-            <input v-model="activity" type="radio" name="activity" :value="key">
-            <span><b class="tone-dot" aria-hidden="true"></b>{{ label }}</span>
+          <label v-for="item in activityOptions" :key="item.id" class="type-option" :class="'tone-' + item.tone">
+            <input v-model="activity" type="radio" name="activity" :value="item.id">
+            <span><b class="tone-dot" aria-hidden="true"></b>{{ item.name }}</span>
           </label>
         </div>
       </fieldset>
@@ -224,5 +235,14 @@ dialog.event-sheet::backdrop {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 3px;
   align-items: center;
+}
+
+.type-option {
+  min-width: 0;
+}
+
+.type-option span {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 </style>

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { localCatalogRepository } from './catalogRepository'
 import {
-  isActivity,
-  isHabit,
+  isDateKey,
   todayInBeijing,
   validateEvent,
   type DateRange,
@@ -32,6 +32,7 @@ function validateDraft(event: EventDraft) {
 }
 
 function validateCheckin(date: string) {
+  if (!isDateKey(date)) throw new Error('请选择有效的打卡日期。')
   if (date > todayInBeijing()) throw new Error('到当天后可以打卡。')
 }
 
@@ -48,14 +49,20 @@ function getLocalData(): PlannerData {
 export const localRepository: PlannerRepository = {
   async read(range) {
     const data = getLocalData()
-    const item = 'item' in range ? range.item : undefined
+    const query = 'kind' in range ? range : undefined
     return {
-      events: data.events.filter((event) => inRange(event.date, range) && (!item || event.activity === item)),
-      checkins: data.checkins.filter((checkin) => inRange(checkin.date, range) && (!item || checkin.habit === item)),
+      events: data.events.filter((event) =>
+        inRange(event.date, range) && (!query || (query.kind === 'activity' && event.activity === query.item)),
+      ),
+      checkins: data.checkins.filter((checkin) =>
+        inRange(checkin.date, range) && (!query || (query.kind === 'habit' && checkin.habit === query.item)),
+      ),
     }
   },
   async saveEvent(event, editing) {
     validateDraft(event)
+    const { activities } = await localCatalogRepository.read()
+    if (!activities.some(({ id }) => id === event.activity)) throw new Error('活动类型不存在。')
     const data = getLocalData()
     if (editing && !data.events.some((existing) => existing.id === event.id)) {
       throw new Error('这条活动已删除，请关闭表单后重试。')
@@ -69,7 +76,13 @@ export const localRepository: PlannerRepository = {
     localStorage.setItem(localKey, JSON.stringify(data))
   },
   async setCheckin(date, habit, checked) {
-    if (checked) validateCheckin(date)
+    if (checked) {
+      validateCheckin(date)
+      const { habits } = await localCatalogRepository.read()
+      if (!habits.some((item) => item.id === habit && item.startDate <= date)) {
+        throw new Error('该项目在所选日期尚未开始。')
+      }
+    }
     const data = getLocalData()
     data.checkins = data.checkins.filter((row) => row.date !== date || row.habit !== habit)
     if (checked) data.checkins.push({ date, habit })
@@ -108,26 +121,26 @@ async function collectRows<Row>(fetch: (offset: number) => PromiseLike<{
 export function cloudRepository(client: SupabaseClient, userId: string): PlannerRepository {
   return {
     async read(range) {
-      const item = 'item' in range ? range.item : undefined
-      const eventRows = !item || isActivity(item)
+      const selection = 'kind' in range ? range : undefined
+      const eventRows = !selection || selection.kind === 'activity'
         ? collectRows<EventRow>((offset) => {
             let query = client.from('planner_events')
               .select('id,event_date,activity,start_minute,end_minute,work_exception')
               .eq('user_id', userId)
               .gte('event_date', range.start)
               .lte('event_date', range.end)
-            if (item) query = query.eq('activity', item)
+            if (selection) query = query.eq('activity', selection.item)
             return query.order('event_date').order('id').range(offset, offset + pageSize - 1)
           })
         : []
-      const checkinRows = !item || isHabit(item)
+      const checkinRows = !selection || selection.kind === 'habit'
         ? collectRows<CheckinRow>((offset) => {
             let query = client.from('planner_checkins')
               .select('checkin_date,habit')
               .eq('user_id', userId)
               .gte('checkin_date', range.start)
               .lte('checkin_date', range.end)
-            if (item) query = query.eq('habit', item)
+            if (selection) query = query.eq('habit', selection.item)
             return query.order('checkin_date').order('habit').range(offset, offset + pageSize - 1)
           })
         : []

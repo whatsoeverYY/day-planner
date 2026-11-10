@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import type { ActivityDefinition, HabitDefinition } from '../catalog'
 import {
-  ACTIVITY_NAMES, HABIT_NAMES, clock, dayCount, dayLabel, durationLabel, isDateKey, shiftDay, weekday,
+  clock, dayCount, dayLabel, durationLabel, isDateKey, shiftDay, weekday,
 } from '../planner'
 import type { Checkin, PlannerEvent, RecordQuery } from '../planner'
 
 const props = defineProps<{
   query: RecordQuery
   today: string
+  activities: ActivityDefinition[]
+  habits: HabitDefinition[]
   events: PlannerEvent[]
   checkins: Checkin[]
   loading: boolean
@@ -28,24 +31,31 @@ const rangeError = computed(() => {
   if (props.query.end < props.query.start) return '结束日期须等于或晚于开始日期。'
   return ''
 })
-const isActivity = computed(() => props.query.item in ACTIVITY_NAMES)
+const isActivity = computed(() => props.query.kind === 'activity')
+const selectedValue = computed(() => itemValue(props.query.kind, props.query.item))
+const selectedItem = computed(() => (isActivity.value ? props.activities : props.habits)
+  .find(({ id }) => id === props.query.item))
+const countedStart = computed(() => {
+  const startsOn = isActivity.value ? undefined : props.habits.find(({ id }) => id === props.query.item)?.startDate
+  return startsOn && startsOn > props.query.start ? startsOn : props.query.start
+})
 const countedEnd = computed(() => props.query.end < props.today ? props.query.end : props.today)
 const matchingEvents = computed(() => props.events.filter((item) =>
   item.activity === props.query.item && item.date >= props.query.start && item.date <= props.query.end,
 ).sort((left, right) => right.date.localeCompare(left.date) || left.start - right.start || left.id.localeCompare(right.id)))
 const totalDuration = computed(() => matchingEvents.value.reduce((total, item) => total + item.end - item.start, 0))
 const checkedDates = computed(() => new Set(props.checkins.filter((item) =>
-  item.habit === props.query.item && item.date >= props.query.start && item.date <= countedEnd.value,
+  item.habit === props.query.item && item.date >= countedStart.value && item.date <= countedEnd.value,
 ).map((item) => item.date)))
-const countedDays = computed(() => !rangeError.value && props.query.start <= countedEnd.value
-  ? dayCount(props.query.start, countedEnd.value)
+const countedDays = computed(() => !rangeError.value && countedStart.value <= countedEnd.value
+  ? dayCount(countedStart.value, countedEnd.value)
   : 0)
 const visibleDates = computed(() => Array.from({ length: Math.min(countedDays.value, limit.value) }, (_, index) =>
   shiftDay(countedEnd.value, -index),
 ))
 const totalRows = computed(() => isActivity.value ? matchingEvents.value.length : countedDays.value)
 
-watch(() => [props.query.item, props.query.start, props.query.end], () => {
+watch(() => [props.query.kind, props.query.item, props.query.start, props.query.end], () => {
   limit.value = pageSize
 })
 
@@ -53,9 +63,16 @@ function setPreset(days: number) {
   emit('update', { ...props.query, start: shiftDay(props.today, 1 - days), end: props.today })
 }
 
+function itemValue(kind: RecordQuery['kind'], id: string) {
+  return kind + ':' + id
+}
+
 function setItem(event: Event) {
-  const item = (event.target as HTMLSelectElement).value as RecordQuery['item']
-  emit('update', { ...props.query, item })
+  const value = (event.currentTarget as HTMLSelectElement).value
+  const separator = value.indexOf(':')
+  const kind = value.slice(0, separator)
+  if (kind !== 'activity' && kind !== 'habit') return
+  emit('update', { ...props.query, kind, item: value.slice(separator + 1) })
 }
 
 function setDate(field: 'start' | 'end', event: Event) {
@@ -81,12 +98,13 @@ function setDate(field: 'start' | 'end', event: Event) {
     <div class="record-controls">
       <label class="record-field">
         <span>查看项目</span>
-        <select :value="query.item" @change="setItem">
-          <optgroup label="活动">
-            <option v-for="(label, key) in ACTIVITY_NAMES" :key="key" :value="key">{{ label }}</option>
+        <select :value="selectedValue" @change="setItem">
+          <option v-if="!selectedItem" :value="selectedValue" disabled>{{ query.item || '暂无可查看的项目' }}</option>
+          <optgroup v-if="activities.length" label="活动">
+            <option v-for="item in activities" :key="item.id" :value="itemValue('activity', item.id)">{{ item.name }}</option>
           </optgroup>
-          <optgroup label="每日打卡">
-            <option v-for="(label, key) in HABIT_NAMES" :key="key" :value="key">{{ label }}</option>
+          <optgroup v-if="habits.length" label="每日打卡">
+            <option v-for="item in habits" :key="item.id" :value="itemValue('habit', item.id)">{{ item.name }}</option>
           </optgroup>
         </select>
       </label>

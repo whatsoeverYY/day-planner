@@ -3,14 +3,20 @@ import { createClient, type Session, type SupabaseClient } from '@supabase/supab
 import { CalendarDays, Clock3, Plus } from '@lucide/vue'
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import CalendarView from './components/CalendarView.vue'
+import CatalogView from './components/CatalogView.vue'
+import ChallengesView from './components/ChallengesView.vue'
 import EventEditor from './components/EventEditor.vue'
 import RecordsView from './components/RecordsView.vue'
 import {
   isDateKey, monthDays, shiftDay, shiftMonth, todayInBeijing, validateEvent, weekDays,
   type DateRange, type EventDraft, type Habit, type PlannerData, type PlannerEvent,
-  type PlannerMode, type RecordQuery,
+  type PlannerMode, type RecordQuery, type TimeSelection,
 } from './planner'
 import { cloudRepository, localRepository } from './repository'
+import { cloudChallengeRepository, localChallengeRepository } from './challengeRepository'
+import { cloudCatalogRepository, localCatalogRepository } from './catalogRepository'
+import { useChallenges } from './useChallenges'
+import { useCatalog } from './useCatalog'
 
 const url = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || ''
@@ -106,13 +112,34 @@ const modes = [
   { value: 'week', label: '周历' },
   { value: 'month', label: '月历' },
   { value: 'records', label: '单项记录' },
+  { value: 'challenges', label: '挑战' },
+  { value: 'catalog', label: '配置' },
 ] as const
-const recordQuery = ref<RecordQuery>({ item: 'practice', start: shiftDay(today.value, -6), end: today.value })
+const calendarVisible = computed(() => mode.value === 'day' || mode.value === 'week' || mode.value === 'month')
+const challengesVisible = computed(() => mode.value === 'challenges')
+const catalogRepository = computed(() => {
+  if (access.value !== 'owner') return null
+  if (localMode) return localCatalogRepository
+  return client && userId.value ? cloudCatalogRepository(client, userId.value) : null
+})
+const catalog = useCatalog(catalogRepository)
+const challengeRepository = computed(() => {
+  if (access.value !== 'owner') return null
+  if (localMode) return localChallengeRepository
+  return client && userId.value ? cloudChallengeRepository(client, userId.value) : null
+})
+const challenges = useChallenges(challengeRepository, challengesVisible)
+const recordQuery = ref<RecordQuery>({
+  kind: 'activity', item: 'practice', start: shiftDay(today.value, -6), end: today.value,
+})
 const calendarRange = computed<DateRange>(() => {
   const days = mode.value === 'month' ? monthDays(selected.value) : weekDays(selected.value)
   return { start: days[0], end: days[days.length - 1] }
 })
-const range = computed(() => mode.value === 'records' ? recordQuery.value : calendarRange.value)
+const range = computed(() => {
+  if (mode.value === 'records') return recordQuery.value
+  return calendarVisible.value ? calendarRange.value : null
+})
 const rangeKey = computed(() => JSON.stringify(range.value))
 const data = ref<PlannerData>({ events: [], checkins: [] })
 const loading = ref(false)
@@ -126,7 +153,7 @@ async function refresh(showLoading = true) {
   const query = range.value
   readError.value = ''
   if (source && showLoading) loading.value = true
-  if (!source || !isDateKey(query.start) || !isDateKey(query.end) || query.start > query.end) {
+  if (!source || !query || !isDateKey(query.start) || !isDateKey(query.end) || query.start > query.end) {
     loading.value = false
     return
   }
@@ -162,16 +189,22 @@ function navigate(offset: number) {
   selectDay(next)
 }
 
-const editor = shallowRef<{ id: string; event: PlannerEvent | null } | null>(null)
+const editor = shallowRef<{ id: string; event: PlannerEvent | null; selection?: TimeSelection } | null>(null)
 const editorEvents = shallowRef<PlannerEvent[] | null>(null)
 const editorError = ref('')
 const saving = ref(false)
 let editorRequest = 0
 
-function openEditor(event: PlannerEvent | null = null) {
+function openEditor(event: PlannerEvent | null = null, selection?: TimeSelection) {
+  if (editor.value) return
   editorEvents.value = null
   editorError.value = ''
-  editor.value = { id: event?.id ?? crypto.randomUUID(), event }
+  editor.value = { id: event?.id ?? crypto.randomUUID(), event, selection }
+}
+
+function planSelection(selection: TimeSelection) {
+  selectDay(selection.date)
+  openEditor(null, selection)
 }
 
 function closeEditor() {
@@ -197,6 +230,9 @@ async function changeEvent(draft: EventDraft | null) {
   const currentEditor = editor.value
   if (!source || !currentEditor || saving.value) return
   editorError.value = draft ? validateEvent(draft) : ''
+  if (draft && !catalog.data.value.activities.some((item) => item.id === draft.activity)) {
+    editorError.value = '请选择已配置的活动类型。'
+  }
   if (editorError.value) return
   saving.value = true
   try {
@@ -240,6 +276,7 @@ async function changeCheckin(habit: Habit, checked: boolean) {
   const date = selected.value
   const pendingKey = date + ':' + habit
   if (!source || date > today.value || pendingChecks.value.has(pendingKey)) return
+  if (!catalog.data.value.habits.some((item) => item.id === habit && item.startDate <= date)) return
   writeError.value = ''
   const update = { date, habit, checked, token: Symbol() }
   pendingChecks.value.set(pendingKey, update)
@@ -268,7 +305,9 @@ function onReturn() {
   updateToday()
   if (Date.now() - lastRefresh < 500) return
   lastRefresh = Date.now()
-  void refresh(false)
+  void catalog.refresh(false)
+  if (challengesVisible.value) void challenges.refresh(false)
+  else void refresh(false)
 }
 
 onMounted(() => {
@@ -311,7 +350,7 @@ onUnmounted(() => {
         <button v-if="session" class="planner-button signout-button" type="button" :disabled="authBusy" @click="signOut">
           退出
         </button>
-        <button v-if="access === 'owner' && mode !== 'records'" class="planner-button primary" type="button" @click="openEditor()">
+        <button v-if="access === 'owner' && calendarVisible" class="planner-button primary" type="button" @click="openEditor()">
           <Plus aria-hidden="true" />新增活动
         </button>
       </div>
@@ -324,18 +363,28 @@ onUnmounted(() => {
           {{ view.label }}
         </button>
       </nav>
-      <div v-if="readError && mode !== 'records'" class="planner-message" role="alert">
+      <div v-if="readError && calendarVisible" class="planner-message" role="alert">
         {{ readError }} <button class="planner-button" type="button" @click="refresh()">重试</button>
       </div>
       <p v-if="writeError || authError" class="planner-message" role="alert">{{ writeError || authError }}</p>
-      <p v-if="loading && mode !== 'records'" class="loading-message" role="status">正在读取日程…</p>
+      <p v-if="loading && calendarVisible" class="loading-message" role="status">正在读取日程…</p>
       <RecordsView v-if="mode === 'records'" :query="recordQuery" :today="today" :events="data.events"
         :checkins="shownCheckins" :loading="loading" :error="readError"
+        :activities="catalog.data.value.activities" :habits="catalog.data.value.habits"
         @update="recordQuery = $event" @retry="refresh()" />
+      <ChallengesView v-else-if="mode === 'challenges'" :data="challenges.data.value" :today="today"
+        :loading="challenges.loading.value" :error="challenges.error.value"
+        :mutation-error="challenges.mutationError.value" :busy="challenges.busy.value"
+        @create="challenges.create" @remove="challenges.remove" @check="challenges.check"
+        @retry="challenges.refresh()" />
+      <CatalogView v-else-if="mode === 'catalog'" :catalog="catalog.data.value"
+        :loading="catalog.loading.value" :error="catalog.error.value" :busy="catalog.busy.value"
+        :mutation-error="catalog.mutationError.value" @save="catalog.save" @retry="catalog.refresh()" />
       <CalendarView v-else :mode="mode" :selected="selected" :today="today"
         :events="data.events" :checkins="shownCheckins" :pending-habits="pendingHabits"
+        :activities="catalog.data.value.activities" :habits="catalog.data.value.habits"
         @select="selectDay" @open-day="openDay" @navigate="navigate" @today="selectDay(today)"
-        @edit="openEditor" @check="changeCheckin" />
+        @edit="openEditor" @plan="planSelection" @check="changeCheckin" />
     </template>
     <section v-else class="access-panel" aria-labelledby="access-title">
       <template v-if="access === 'checking'">
@@ -368,7 +417,7 @@ onUnmounted(() => {
     <footer class="planner-footer"><Clock3 aria-hidden="true" />北京时间 · UTC+8</footer>
   </main>
 
-  <EventEditor v-if="editor" :date="selected" :event="editor.event" :events="editorEvents ?? data.events"
-    :saving="saving" :error="editorError" @close="closeEditor" @save="changeEvent"
+  <EventEditor v-if="editor" :date="selected" :event="editor.event" :selection="editor.selection" :events="editorEvents ?? data.events"
+    :activities="catalog.data.value.activities" :saving="saving" :error="editorError" @close="closeEditor" @save="changeEvent"
     @remove="changeEvent(null)" @date-change="loadEditorDate" />
 </template>

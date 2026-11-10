@@ -1,18 +1,13 @@
-export const ACTIVITY_NAMES = {
-  piano: '钢琴课',
-  practice: '钢琴练习',
-  strength: '无氧训练',
-} as const
-
-export const HABIT_NAMES = {
-  steps: '6000 步',
-  reading: '阅读',
-} as const
-
-export type Activity = keyof typeof ACTIVITY_NAMES
-export type Habit = keyof typeof HABIT_NAMES
+export type Activity = string
+export type Habit = string
 export type CalendarMode = 'day' | 'week' | 'month'
-export type PlannerMode = CalendarMode | 'records'
+export type PlannerMode = CalendarMode | 'records' | 'challenges' | 'catalog'
+
+export interface TimeSelection {
+  date: string
+  start: number
+  end: number
+}
 
 export interface EventDraft {
   date: string
@@ -37,7 +32,8 @@ export interface DateRange {
 }
 
 export interface RecordQuery extends DateRange {
-  item: Activity | Habit
+  kind: 'activity' | 'habit'
+  item: string
 }
 
 export interface PlannerData {
@@ -141,17 +137,9 @@ export function overlapsWork(date: string, start: number, end: number) {
   return end > start && isWorkday(date) && WORK_BLOCKS.some(([from, to]) => start < to && end > from)
 }
 
-export function isActivity(item: string): item is Activity {
-  return Object.hasOwn(ACTIVITY_NAMES, item)
-}
-
-export function isHabit(item: string): item is Habit {
-  return Object.hasOwn(HABIT_NAMES, item)
-}
-
 export function validateEvent(draft: EventDraft) {
   if (!isDateKey(draft.date)) return '请选择有效日期。'
-  if (!isActivity(draft.activity)) return '请选择活动类型。'
+  if (!draft.activity.trim()) return '请选择活动类型。'
   if (!Number.isInteger(draft.start) || !Number.isInteger(draft.end) ||
       draft.start < 0 || draft.end > 1440 || draft.end <= draft.start) {
     return '请选择当天的有效起止时间。'

@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
-import { BookOpen, Footprints } from '@lucide/vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { BookOpen, CircleCheck, Footprints } from '@lucide/vue'
+import type { ActivityDefinition, HabitDefinition } from '../catalog'
 import {
-  ACTIVITY_NAMES,
-  HABIT_NAMES,
   WORK_BLOCKS,
   clock,
   dayLabel,
   isWorkday,
   monthDays,
+  overlapsWork,
   weekDays,
   weekday,
   type Activity,
@@ -21,6 +21,8 @@ const props = defineProps<{
   mode: 'day' | 'week' | 'month'
   selected: string
   today: string
+  activities: ActivityDefinition[]
+  habits: HabitDefinition[]
   events: PlannerEvent[]
   checkins: Checkin[]
   pendingHabits: Habit[]
@@ -32,16 +34,18 @@ const emit = defineEmits<{
   navigate: [offset: number]
   today: []
   edit: [event: PlannerEvent]
+  plan: [selection: { date: string; start: number; end: number }]
   check: [habit: Habit, checked: boolean]
 }>()
 
 const weekdays = ['日', '一', '二', '三', '四', '五', '六']
 const calendarWeekdays = [...weekdays.slice(1), weekdays[0]]
-const activities = Object.keys(ACTIVITY_NAMES) as Activity[]
-const habits = Object.keys(HABIT_NAMES) as Habit[]
-const hourHeight = 35
+const activitiesById = computed(() => new Map(props.activities.map((item) => [item.id, item])))
+const slotMinutes = 30
+const hourHeight = computed(() => props.mode === 'day' ? 48 : 35)
 const dayPanel = ref<HTMLElement | null>(null)
 const dayHeading = ref<HTMLHeadingElement | null>(null)
+const dayGridOpen = ref(false)
 
 const eventsByDate = computed(() => {
   const groups = new Map<string, PlannerEvent[]>()
@@ -70,18 +74,29 @@ function dateNumber(date: string) {
   return Number(date.slice(-2))
 }
 
+function activityName(id: Activity) {
+  return activitiesById.value.get(id)?.name ?? id
+}
+
+function activityToneClass(id: Activity) {
+  return 'tone-' + (activitiesById.value.get(id)?.tone ?? 'purple')
+}
+
 function describeDay(date: string) {
   const events = eventsByDate.value.get(date) ?? []
-  const checkCount = checksByDate.value.get(date)?.size ?? 0
-  const dayActivities = [...new Set(events.map((event) => event.activity))]
+  const habits = props.habits.filter((habit) => habit.startDate <= date)
+  const checks = checksByDate.value.get(date)
+  const checkCount = habits.filter((habit) => checks?.has(habit.id)).length
+  const activityTones = [...new Set(events.map((event) => activityToneClass(event.activity)))]
   const weekLabel = '周' + weekdays[weekday(date)]
-  const checkLabel = date <= props.today ? `，打卡 ${checkCount} 项，共 ${habits.length} 项` : ''
-  const eventLabel = events.length ? '，' + events.map((event) => ACTIVITY_NAMES[event.activity]).join('、') : ''
+  const checkLabel = date <= props.today && habits.length ? `，打卡 ${checkCount} 项，共 ${habits.length} 项` : ''
+  const eventLabel = events.length ? '，' + events.map((event) => activityName(event.activity)).join('、') : ''
   return {
     date,
     events,
+    habits,
     checkCount,
-    dayActivities,
+    activityTones,
     weekLabel,
     dayNumber: dateNumber(date),
     label: dayLabel(date) + ' ' + weekLabel + eventLabel + checkLabel,
@@ -110,7 +125,7 @@ const calendarTitle = computed(() => {
 const visibleHours = computed(() => {
   let first = 9
   let last = 21
-  for (const day of week.value) {
+  for (const day of props.mode === 'day' ? [selectedDay.value] : week.value) {
     for (const event of day.events) {
       first = Math.min(first, Math.floor(event.start / 60))
       last = Math.max(last, Math.ceil(event.end / 60))
@@ -120,7 +135,7 @@ const visibleHours = computed(() => {
 })
 
 function offsetAt(minute: number) {
-  return (minute / 60 - visibleHours.value.first) * hourHeight
+  return (minute / 60 - visibleHours.value.first) * hourHeight.value
 }
 
 function blockStyle(start: number, end: number) {
@@ -172,14 +187,136 @@ function placeEvents(events: PlannerEvent[]) {
   return tiles
 }
 
-const timeline = computed(() => week.value.map((day) => ({
+const timeline = computed(() => (props.mode === 'day' ? [selectedDay.value] : week.value).map((day) => ({
   date: day.date,
   workday: isWorkday(day.date),
   tiles: placeEvents(day.events),
 })))
 
+const slotStarts = computed(() => Array.from(
+  { length: visibleHours.value.ticks.length * 2 },
+  (_, index) => visibleHours.value.first * 60 + index * slotMinutes,
+))
+const timelineStyle = computed(() => ({
+  '--dp-hours': visibleHours.value.ticks.length,
+  '--dp-hour': `${hourHeight.value}px`,
+}))
+
+type SlotRange = { date: string; anchor: number; cursor: number }
+
+const pointerRange = ref<SlotRange | null>(null)
+const keyboardRange = ref<SlotRange | null>(null)
+const focusSlots = ref<Record<string, number>>({})
+let activePointer: { id: number; surface: HTMLElement } | null = null
+
+function selectionFor(range: SlotRange) {
+  return {
+    date: range.date,
+    start: slotStarts.value[Math.min(range.anchor, range.cursor)],
+    end: slotStarts.value[Math.max(range.anchor, range.cursor)] + slotMinutes,
+  }
+}
+
+const selection = computed(() => {
+  const range = pointerRange.value ?? keyboardRange.value
+  return range ? selectionFor(range) : null
+})
+
+function slotLabel(date: string, start: number) {
+  const end = start + slotMinutes
+  const work = overlapsWork(date, start, end) ? '，工作时段，保存需开启例外' : ''
+  return `${dayLabel(date)} ${clock(start)}–${clock(end)}，新增活动${work}`
+}
+
+function pointerSlot(surface: HTMLElement, clientY: number) {
+  const bounds = surface.getBoundingClientRect()
+  const slots = slotStarts.value.length
+  const index = Math.floor((clientY - bounds.top) * slots / bounds.height)
+  return Math.max(0, Math.min(slots - 1, index))
+}
+
+function startSelection(date: string, event: PointerEvent) {
+  if (activePointer || !event.isPrimary || event.button !== 0) return
+  const surface = event.currentTarget as HTMLElement
+  const slot = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-slot-index]')
+  if (!slot) return
+  const index = Number(slot.dataset.slotIndex)
+  event.preventDefault()
+  slot.focus({ preventScroll: true })
+  keyboardRange.value = null
+  surface.setPointerCapture(event.pointerId)
+  activePointer = { id: event.pointerId, surface }
+  pointerRange.value = { date, anchor: index, cursor: index }
+}
+
+function moveSelection(event: PointerEvent) {
+  if (!activePointer || activePointer.id !== event.pointerId || !pointerRange.value) return
+  pointerRange.value.cursor = pointerSlot(activePointer.surface, event.clientY)
+}
+
+function clearPointer(event?: PointerEvent) {
+  if (!activePointer || (event && activePointer.id !== event.pointerId)) return
+  const { id, surface } = activePointer
+  activePointer = null
+  pointerRange.value = null
+  if (surface.hasPointerCapture(id)) surface.releasePointerCapture(id)
+}
+
+function finishSelection(event: PointerEvent) {
+  if (activePointer?.id !== event.pointerId || !pointerRange.value) return
+  moveSelection(event)
+  const draft = selectionFor(pointerRange.value)
+  // Let the browser release capture after pointerup so its click stays on the selection layer.
+  activePointer = null
+  pointerRange.value = null
+  emit('plan', draft)
+}
+
+function activateSlot(date: string, index: number, event: MouseEvent) {
+  // Pointer activation is handled on pointerup, including single taps.
+  if (event.detail !== 0) return
+  const range = keyboardRange.value?.date === date
+    ? keyboardRange.value
+    : { date, anchor: index, cursor: index }
+  keyboardRange.value = null
+  emit('plan', selectionFor(range))
+}
+
+function onSlotKey(date: string, index: number, event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    clearPointer()
+    keyboardRange.value = null
+    return
+  }
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+  event.preventDefault()
+  const direction = event.key === 'ArrowUp' ? -1 : 1
+  const next = Math.max(0, Math.min(slotStarts.value.length - 1, index + direction))
+  const anchor = keyboardRange.value?.date === date ? keyboardRange.value.anchor : index
+  keyboardRange.value = event.shiftKey ? { date, anchor, cursor: next } : null
+  const surface = (event.currentTarget as HTMLElement).parentElement
+  surface?.querySelector<HTMLButtonElement>(`[data-slot-index="${next}"]`)?.focus()
+}
+
+function clearKeyboard(event: FocusEvent) {
+  const surface = event.currentTarget as HTMLElement
+  if (!(event.relatedTarget instanceof Node) || !surface.contains(event.relatedTarget)) {
+    keyboardRange.value = null
+  }
+}
+
+watch(() => props.mode, (mode) => {
+  if (mode !== 'day') dayGridOpen.value = false
+})
+
+watch([() => props.mode, () => props.selected, () => visibleHours.value.first, () => visibleHours.value.last, dayGridOpen], () => {
+  clearPointer()
+  keyboardRange.value = null
+  focusSlots.value = {}
+})
+
 function eventLabel(event: PlannerEvent) {
-  return `${ACTIVITY_NAMES[event.activity]}，${clock(event.start)}–${clock(event.end)}${event.workException ? '，工作时段例外' : ''}`
+  return `${activityName(event.activity)}，${clock(event.start)}–${clock(event.end)}${event.workException ? '，工作时段例外' : ''}`
 }
 
 async function showCompactDay(date: string) {
@@ -246,14 +383,14 @@ function toggleHabit(habit: Habit, event: Event) {
                 v-for="event in day.events.slice(0, 2)"
                 :key="event.id"
                 class="month-item"
-                :class="event.activity"
-              >{{ ACTIVITY_NAMES[event.activity] }}</span>
+                :class="activityToneClass(event.activity)"
+              >{{ activityName(event.activity) }}</span>
               <span v-if="day.events.length > 2" class="month-extra">+{{ day.events.length - 2 }}</span>
             </span>
             <span class="month-dots" aria-hidden="true">
-              <b v-for="activity in day.dayActivities" :key="activity" class="tone-dot" :class="activity"></b>
+              <b v-for="tone in day.activityTones" :key="tone" class="tone-dot" :class="tone"></b>
             </span>
-            <span v-if="day.date <= today" class="month-checks">✓ {{ day.checkCount }}/{{ habits.length }}</span>
+            <span v-if="day.date <= today && day.habits.length" class="month-checks">✓ {{ day.checkCount }}/{{ day.habits.length }}</span>
           </button>
         </div>
 
@@ -273,14 +410,40 @@ function toggleHabit(habit: Habit, event: Event) {
               <span>{{ day.weekLabel }}</span>
               <span class="day-number">{{ day.dayNumber }}</span>
               <span class="date-indicator" aria-hidden="true">
-                <b v-for="activity in day.dayActivities" :key="activity" class="tone-dot" :class="activity"></b>
+                <b v-for="tone in day.activityTones" :key="tone" class="tone-dot" :class="tone"></b>
               </span>
-              <span v-if="day.date <= today" class="day-check-count">✓ {{ day.checkCount }}/{{ habits.length }}</span>
+              <span v-if="day.date <= today && day.habits.length" class="day-check-count">✓ {{ day.checkCount }}/{{ day.habits.length }}</span>
             </button>
           </div>
 
-          <template v-if="mode === 'week'">
-            <div class="week-grid" :style="{ '--dp-hours': visibleHours.ticks.length }">
+          <div v-if="mode === 'day'" class="day-timeline-toggle">
+            <button
+              type="button"
+              class="planner-button"
+              :aria-expanded="dayGridOpen"
+              aria-controls="day-timeline"
+              @click="dayGridOpen = !dayGridOpen"
+            >{{ dayGridOpen ? '收起时间格' : '按时间规划' }}</button>
+          </div>
+
+          <div
+            v-show="mode === 'week' || dayGridOpen"
+            :id="mode === 'day' ? 'day-timeline' : undefined"
+            :class="mode === 'day' ? 'day-timeline' : 'week-timeline'"
+          >
+            <p id="timeline-planning-hint" class="timeline-planning-hint" aria-live="polite">
+              <template v-if="selection">
+                {{ dayLabel(selection.date) }} · {{ clock(selection.start) }}–{{ clock(selection.end) }}
+              </template>
+              <template v-else>
+                点击时间格安排半小时，拖动可选择连续时段。
+                <span v-if="mode === 'day'" class="touch-scroll-hint">沿左侧刻度滑动可滚动页面。</span>
+              </template>
+            </p>
+            <span id="timeline-keyboard-hint" class="dp-sr-only">
+              上下方向键移动，按住 Shift 扩展时段，按回车新增活动。
+            </span>
+            <div :class="mode === 'day' ? 'day-grid' : 'week-grid'" :style="timelineStyle">
               <div class="time-axis" aria-hidden="true">
                 <span v-for="hour in visibleHours.ticks" :key="hour">{{ clock(hour * 60) }}</span>
               </div>
@@ -291,6 +454,7 @@ function toggleHabit(habit: Habit, event: Event) {
                 :class="{ selected: day.date === selected }"
                 role="group"
                 :aria-label="dayLabel(day.date)"
+                :data-date="day.date"
               >
                 <template v-if="day.workday">
                   <div
@@ -302,18 +466,50 @@ function toggleHabit(habit: Habit, event: Event) {
                     role="group"
                   ><span aria-hidden="true">工作中</span></div>
                 </template>
+                <div
+                  class="slot-layer"
+                  :style="{ '--slot-count': slotStarts.length }"
+                  @pointerdown="startSelection(day.date, $event)"
+                  @pointermove="moveSelection"
+                  @pointerup="finishSelection"
+                  @pointercancel="clearPointer"
+                  @lostpointercapture="clearPointer"
+                  @focusout="clearKeyboard"
+                >
+                  <button
+                    v-for="(start, index) in slotStarts"
+                    :key="start"
+                    type="button"
+                    class="timeline-slot"
+                    :data-slot-index="index"
+                    :data-start="start"
+                    :tabindex="index === (focusSlots[day.date] ?? 0) ? 0 : -1"
+                    :aria-label="slotLabel(day.date, start)"
+                    :title="slotLabel(day.date, start)"
+                    aria-describedby="timeline-keyboard-hint"
+                    @focus="focusSlots[day.date] = index"
+                    @click="activateSlot(day.date, index, $event)"
+                    @keydown="onSlotKey(day.date, index, $event)"
+                  ></button>
+                </div>
+                <div
+                  v-if="selection?.date === day.date"
+                  class="slot-selection"
+                  :style="blockStyle(selection.start, selection.end)"
+                  aria-hidden="true"
+                ></div>
                 <button
                   v-for="{ event, style } in day.tiles"
                   :key="event.id"
                   type="button"
                   class="event-tile"
-                  :class="event.activity"
+                  :class="activityToneClass(event.activity)"
                   :style="style"
                   :aria-label="eventLabel(event)"
                   :title="eventLabel(event)"
                   @click="emit('edit', event)"
                 >
-                  <span class="event-title">{{ ACTIVITY_NAMES[event.activity] }}</span>
+                  <span class="event-title">{{ activityName(event.activity) }}</span>
                   <span
                     v-if="event.end - event.start >= 60"
                     class="event-time"
@@ -322,38 +518,38 @@ function toggleHabit(habit: Habit, event: Event) {
                 </button>
               </div>
             </div>
+          </div>
 
-            <div class="compact-week">
-              <button
-                v-for="day in week"
-                :key="day.date"
-                type="button"
-                class="compact-day"
-                :aria-current="day.date === today ? 'date' : undefined"
-                @click="showCompactDay(day.date)"
-              >
-                <span class="compact-date">{{ day.weekLabel }} {{ day.dayNumber }}</span>
-                <span class="compact-items">
-                  <span v-for="event in day.events" :key="event.id">
-                    <b class="tone-dot" :class="event.activity" aria-hidden="true"></b>
-                    <span class="compact-time">{{ clock(event.start) }}–{{ clock(event.end) }}</span>
-                    <span>{{ ACTIVITY_NAMES[event.activity] }}{{ event.workException ? ' · 例外' : '' }}</span>
-                  </span>
-                  <span v-if="!day.events.length" class="compact-time">暂无活动</span>
+          <div v-if="mode === 'week'" class="compact-week">
+            <button
+              v-for="day in week"
+              :key="day.date"
+              type="button"
+              class="compact-day"
+              :aria-current="day.date === today ? 'date' : undefined"
+              @click="showCompactDay(day.date)"
+            >
+              <span class="compact-date">{{ day.weekLabel }} {{ day.dayNumber }}</span>
+              <span class="compact-items">
+                <span v-for="event in day.events" :key="event.id">
+                  <b class="tone-dot" :class="activityToneClass(event.activity)" aria-hidden="true"></b>
+                  <span class="compact-time">{{ clock(event.start) }}–{{ clock(event.end) }}</span>
+                  <span>{{ activityName(event.activity) }}{{ event.workException ? ' · 例外' : '' }}</span>
                 </span>
-                <span v-if="day.date <= today" class="day-check-count">✓ {{ day.checkCount }}/{{ habits.length }}</span>
-              </button>
-            </div>
-          </template>
+                <span v-if="!day.events.length" class="compact-time">暂无活动</span>
+              </span>
+              <span v-if="day.date <= today && day.habits.length" class="day-check-count">✓ {{ day.checkCount }}/{{ day.habits.length }}</span>
+            </button>
+          </div>
         </template>
       </div>
 
       <div v-if="mode !== 'day'" class="calendar-legend" aria-label="日历图例">
-        <span v-for="activity in activities" :key="activity">
-          <b class="tone-dot" :class="activity" aria-hidden="true"></b>{{ ACTIVITY_NAMES[activity] }}
+        <span v-for="activity in activities" :key="activity.id">
+          <b class="tone-dot" :class="'tone-' + activity.tone" aria-hidden="true"></b>{{ activity.name }}
         </span>
         <span v-if="mode === 'week'"><b class="work-key" aria-hidden="true"></b>工作时段</span>
-        <span>✓ 当日打卡项数</span>
+        <span v-if="habits.length">✓ 当日打卡项数</span>
       </div>
     </div>
 
@@ -374,11 +570,11 @@ function toggleHabit(habit: Habit, event: Event) {
             :key="event.id"
             type="button"
             class="agenda-item"
-            :class="event.activity"
+            :class="activityToneClass(event.activity)"
             @click="emit('edit', event)"
           >
             <span>
-              <span class="agenda-name">{{ ACTIVITY_NAMES[event.activity] }}</span>
+              <span class="agenda-name">{{ activityName(event.activity) }}</span>
               <span class="agenda-time">{{ clock(event.start) }}–{{ clock(event.end) }}</span>
             </span>
             <span v-if="event.workException" class="agenda-exception">工作时段例外</span>
@@ -390,28 +586,30 @@ function toggleHabit(habit: Habit, event: Event) {
       <section class="day-section habit-section" aria-labelledby="day-habits-title">
         <div class="section-heading">
           <h3 id="day-habits-title">当日打卡</h3>
-          <span class="habit-count" aria-live="polite">
-            {{ selected > today ? '—' : `${selectedDay.checkCount} / ${habits.length}` }}
+          <span v-if="selectedDay.habits.length" class="habit-count" aria-live="polite">
+            {{ selected > today ? '—' : `${selectedDay.checkCount} / ${selectedDay.habits.length}` }}
           </span>
         </div>
-        <div class="habit-progress" aria-hidden="true">
-          <span v-for="index in habits.length" :key="index" :class="{ done: index <= selectedDay.checkCount }"></span>
+        <div v-if="selectedDay.habits.length" class="habit-progress" aria-hidden="true">
+          <span v-for="index in selectedDay.habits.length" :key="index" :class="{ done: index <= selectedDay.checkCount }"></span>
         </div>
-        <label v-for="habit in habits" :key="habit" class="habit-row">
+        <label v-for="habit in selectedDay.habits" :key="habit.id" class="habit-row">
           <span>
-            <Footprints v-if="habit === 'steps'" :size="15" aria-hidden="true" />
-            <BookOpen v-else :size="15" aria-hidden="true" />
-            {{ HABIT_NAMES[habit] }}
+            <Footprints v-if="habit.id === 'steps'" :size="15" aria-hidden="true" />
+            <BookOpen v-else-if="habit.id === 'reading'" :size="15" aria-hidden="true" />
+            <CircleCheck v-else :size="15" aria-hidden="true" />
+            {{ habit.name }}
           </span>
           <input
             type="checkbox"
-            :checked="selectedChecks?.has(habit) ?? false"
-            :disabled="selected > today || pendingHabits.includes(habit)"
-            :aria-busy="pendingHabits.includes(habit)"
-            @change="toggleHabit(habit, $event)"
+            :checked="selectedChecks?.has(habit.id) ?? false"
+            :disabled="selected > today || pendingHabits.includes(habit.id)"
+            :aria-busy="pendingHabits.includes(habit.id)"
+            @change="toggleHabit(habit.id, $event)"
           >
         </label>
-        <p v-if="selected > today" class="future-hint">到当天后可以打卡</p>
+        <p v-if="!selectedDay.habits.length" class="empty-agenda">这一天还没有打卡项目</p>
+        <p v-else-if="selected > today" class="future-hint">到当天后可以打卡</p>
       </section>
 
       <section v-if="isWorkday(selected)" class="phone-work" aria-labelledby="day-work-title">
@@ -425,7 +623,89 @@ function toggleHabit(habit: Habit, event: Event) {
 </template>
 
 <style scoped>
+.day-timeline-toggle {
+  padding: 6px 10px 10px;
+}
+
+.timeline-planning-hint {
+  padding: 6px 9px;
+  min-height: 28px;
+  color: var(--dp-sub);
+  font-size: 11px;
+  border-block: 1px solid var(--dp-grid);
+}
+
+.touch-scroll-hint {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .touch-scroll-hint {
+    display: inline;
+  }
+}
+
+.day-grid {
+  display: grid;
+  grid-template-columns: max(var(--dp-axis), 54px) minmax(0, 1fr);
+  height: calc(var(--dp-hour) * var(--dp-hours));
+}
+
+.slot-layer {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-rows: repeat(var(--slot-count), minmax(0, 1fr));
+  touch-action: none;
+  user-select: none;
+}
+
+.timeline-slot {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-block-end: 1px solid color-mix(in srgb, var(--dp-sub) 13%, transparent);
+  background: transparent;
+}
+
+.timeline-slot:nth-child(even) {
+  border-block-end-color: transparent;
+}
+
+@media (hover: hover) {
+  .timeline-slot:hover {
+    background: color-mix(in srgb, var(--dp-accent) 13%, transparent);
+  }
+}
+
+:global(#app) .timeline-slot:focus-visible {
+  outline-offset: -2px;
+}
+
+.slot-selection {
+  position: absolute;
+  inset-inline: 1px;
+  background: color-mix(in srgb, var(--dp-accent) 20%, transparent);
+  border: 1px solid var(--dp-accent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
 .event-tile:focus-visible {
   z-index: 3;
+}
+
+.agenda-name,
+.calendar-legend > span,
+.compact-items > span,
+.habit-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .week-timeline {
+    display: none;
+  }
 }
 </style>

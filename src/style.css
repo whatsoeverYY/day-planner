@@ -255,15 +255,15 @@ body {
   padding: 0 2px;
   background: var(--dp-work);
 }
-#app :is(.piano,.practice,.strength) {
+#app :is(.tone-purple,.tone-blue,.tone-orange) {
   --activity-ink: var(--dp-piano);
   --activity-bg: var(--dp-piano-fill);
 }
-#app .practice {
+#app .tone-blue {
   --activity-ink: var(--dp-practice);
   --activity-bg: var(--dp-practice-fill);
 }
-#app .strength {
+#app .tone-orange {
   --activity-ink: var(--dp-strength);
   --activity-bg: var(--dp-strength-fill);
 }
@@ -403,7 +403,8 @@ body {
   margin-bottom: 4px;
 }
 #app .habit-progress span {
-  width: 50%;
+  flex: 1;
+  min-width: 0;
   height: 4px;
   border-radius: 8px;
   background: var(--dp-line);
