@@ -1,112 +1,46 @@
 <script setup lang="ts">
-import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js'
 import { CalendarDays, Clock3, Plus } from '@lucide/vue'
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
 import CalendarView from './components/CalendarView.vue'
 import CatalogView from './components/CatalogView.vue'
 import ChallengesView from './components/ChallengesView.vue'
 import EventEditor from './components/EventEditor.vue'
 import RecordsView from './components/RecordsView.vue'
-import {
-  isDateKey, monthDays, shiftDay, shiftMonth, todayInBeijing, validateEvent, weekDays,
-  type DateRange, type EventDraft, type Habit, type PlannerData, type PlannerEvent,
-  type PlannerMode, type RecordQuery, type TimeSelection,
-} from './planner'
 import { cloudRepository, localRepository } from './repository'
 import { cloudChallengeRepository, localChallengeRepository } from './challengeRepository'
 import { cloudCatalogRepository, localCatalogRepository } from './catalogRepository'
-import { useChallenges } from './useChallenges'
 import { useCatalog } from './useCatalog'
+import { useChallenges } from './useChallenges'
+import { usePlanner } from './usePlanner'
+import { usePlannerAuth } from './usePlannerAuth'
 
-const url = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
-const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || ''
-const localMode = !url && !key
-let client: SupabaseClient | null = null
-if (url && key) {
-  try {
-    client = createClient(url, key, { auth: { flowType: 'pkce' } })
-  } catch {
-    // A malformed environment is shown in the setup state below.
-  }
-}
-
-type Access = 'checking' | 'login' | 'owner' | 'denied' | 'error' | 'config'
-const access = ref<Access>(localMode ? 'owner' : client ? 'checking' : 'config')
-const session = shallowRef<Session | null>(null)
-const authError = ref('')
-const authBusy = ref(false)
-const userId = computed(() => session.value?.user.id)
-const repository = computed(() => {
+const { localMode, client, access, session, userId, authError, authBusy, verifyAccess, signIn, signOut } = usePlannerAuth()
+const repositories = computed(() => {
   if (access.value !== 'owner') return null
-  if (localMode) return localRepository
-  return client && userId.value ? cloudRepository(client, userId.value) : null
+  if (localMode) {
+    return { planner: localRepository, catalog: localCatalogRepository, challenges: localChallengeRepository }
+  }
+  const id = userId.value
+  if (!client || !id) return null
+  return {
+    planner: cloudRepository(client, id),
+    catalog: cloudCatalogRepository(client, id),
+    challenges: cloudChallengeRepository(client, id),
+  }
 })
-let accessRequest = 0
-let unsubscribe: (() => void) | undefined
-let active = false
+const catalog = useCatalog(computed(() => repositories.value?.catalog ?? null))
+const {
+  today, selected, mode, calendarVisible, recordQuery,
+  data, loading, readError, writeError, checkinsReady, pendingHabits, shownCheckins,
+  editor, editorEvents, editorError, saving,
+  refresh, updateToday, selectDay, openDay, navigate,
+  openEditor, planSelection, closeEditor, loadEditorDate, changeEvent, changeCheckin,
+} = usePlanner(computed(() => repositories.value?.planner ?? null), catalog.data)
+const challengesVisible = computed(() => mode.value === 'challenges')
+const challenges = useChallenges(computed(() => repositories.value?.challenges ?? null), challengesVisible)
 
-async function verifyAccess() {
-  if (!client || !session.value) return
-  const request = ++accessRequest
-  access.value = 'checking'
-  authError.value = ''
-  try {
-    const { data, error } = await client.rpc('planner_has_access')
-    if (error) throw error
-    if (request === accessRequest) access.value = data === true ? 'owner' : 'denied'
-  } catch {
-    if (request !== accessRequest) return
-    access.value = 'error'
-    authError.value = '无法验证日程访问权限。请检查网络或 Supabase 配置。'
-  }
-}
+watch(userId, closeEditor, { flush: 'sync' })
 
-function receiveSession(next: Session | null) {
-  const changedUser = session.value?.user.id !== next?.user.id
-  session.value = next
-  if (!next) {
-    accessRequest++
-    access.value = 'login'
-    editor.value = null
-  } else if (changedUser) {
-    editor.value = null
-    void verifyAccess()
-  }
-}
-
-async function signIn() {
-  if (!client || authBusy.value) return
-  authBusy.value = true
-  authError.value = ''
-  try {
-    const redirectTo = new URL(import.meta.env.BASE_URL, window.location.href).href
-    const { error } = await client.auth.signInWithOAuth({ provider: 'github', options: { redirectTo } })
-    if (error) throw error
-  } catch {
-    authError.value = '无法打开 GitHub 登录，请稍后重试。'
-  } finally {
-    authBusy.value = false
-  }
-}
-
-async function signOut() {
-  if (!client || authBusy.value) return
-  authBusy.value = true
-  authError.value = ''
-  try {
-    const { error } = await client.auth.signOut({ scope: 'local' })
-    if (error) throw error
-    receiveSession(null)
-  } catch {
-    authError.value = '退出登录失败，请重试。'
-  } finally {
-    authBusy.value = false
-  }
-}
-
-const today = ref(todayInBeijing())
-const selected = ref(today.value)
-const mode = ref<PlannerMode>('week')
 const modes = [
   { value: 'day', label: '当天' },
   { value: 'week', label: '周历' },
@@ -115,191 +49,10 @@ const modes = [
   { value: 'challenges', label: '挑战' },
   { value: 'catalog', label: '配置' },
 ] as const
-const calendarVisible = computed(() => mode.value === 'day' || mode.value === 'week' || mode.value === 'month')
-const challengesVisible = computed(() => mode.value === 'challenges')
-const catalogRepository = computed(() => {
-  if (access.value !== 'owner') return null
-  if (localMode) return localCatalogRepository
-  return client && userId.value ? cloudCatalogRepository(client, userId.value) : null
-})
-const catalog = useCatalog(catalogRepository)
-const challengeRepository = computed(() => {
-  if (access.value !== 'owner') return null
-  if (localMode) return localChallengeRepository
-  return client && userId.value ? cloudChallengeRepository(client, userId.value) : null
-})
-const challenges = useChallenges(challengeRepository, challengesVisible)
-const recordQuery = ref<RecordQuery>({
-  kind: 'activity', item: 'practice', start: shiftDay(today.value, -6), end: today.value,
-})
-const calendarRange = computed<DateRange>(() => {
-  const days = mode.value === 'month' ? monthDays(selected.value) : weekDays(selected.value)
-  return { start: days[0], end: days[days.length - 1] }
-})
-const range = computed(() => {
-  if (mode.value === 'records') return recordQuery.value
-  return calendarVisible.value ? calendarRange.value : null
-})
-const rangeKey = computed(() => JSON.stringify(range.value))
-const data = ref<PlannerData>({ events: [], checkins: [] })
-const loading = ref(false)
-const readError = ref('')
-const writeError = ref('')
-let readRequest = 0
-
-async function refresh(showLoading = true) {
-  const request = ++readRequest
-  const source = repository.value
-  const query = range.value
-  readError.value = ''
-  if (source && showLoading) loading.value = true
-  if (!source || !query || !isDateKey(query.start) || !isDateKey(query.end) || query.start > query.end) {
-    loading.value = false
-    return
-  }
-  try {
-    const result = await source.read(query)
-    if (request === readRequest) data.value = result
-  } catch {
-    if (request === readRequest) readError.value = '读取日程失败。请检查网络后重试。'
-  } finally {
-    if (request === readRequest) loading.value = false
-  }
-}
-
-watch([repository, rangeKey], () => {
-  data.value = { events: [], checkins: [] }
-  writeError.value = ''
-  void refresh()
-}, { immediate: true })
-
-function selectDay(date: string) {
-  if (isDateKey(date)) selected.value = date
-}
-
-function openDay(date: string) {
-  selectDay(date)
-  mode.value = 'day'
-}
-
-function navigate(offset: number) {
-  const next = mode.value === 'month'
-    ? shiftMonth(selected.value, offset)
-    : shiftDay(selected.value, offset * (mode.value === 'week' ? 7 : 1))
-  selectDay(next)
-}
-
-const editor = shallowRef<{ id: string; event: PlannerEvent | null; selection?: TimeSelection } | null>(null)
-const editorEvents = shallowRef<PlannerEvent[] | null>(null)
-const editorError = ref('')
-const saving = ref(false)
-let editorRequest = 0
-
-function openEditor(event: PlannerEvent | null = null, selection?: TimeSelection) {
-  if (editor.value) return
-  editorEvents.value = null
-  editorError.value = ''
-  editor.value = { id: event?.id ?? crypto.randomUUID(), event, selection }
-}
-
-function planSelection(selection: TimeSelection) {
-  selectDay(selection.date)
-  openEditor(null, selection)
-}
-
-function closeEditor() {
-  editorRequest++
-  editor.value = null
-}
-
-async function loadEditorDate(date: string) {
-  const request = ++editorRequest
-  editorEvents.value = null
-  const source = repository.value
-  if (!source || !isDateKey(date) || (date >= calendarRange.value.start && date <= calendarRange.value.end)) return
-  try {
-    const result = await source.read({ start: date, end: date })
-    if (request === editorRequest) editorEvents.value = result.events
-  } catch {
-    // Work-hour validation still applies when other events cannot be loaded.
-  }
-}
-
-async function changeEvent(draft: EventDraft | null) {
-  const source = repository.value
-  const currentEditor = editor.value
-  if (!source || !currentEditor || saving.value) return
-  editorError.value = draft ? validateEvent(draft) : ''
-  if (draft && !catalog.data.value.activities.some((item) => item.id === draft.activity)) {
-    editorError.value = '请选择已配置的活动类型。'
-  }
-  if (editorError.value) return
-  saving.value = true
-  try {
-    if (draft) {
-      const event = { ...draft, id: currentEditor.id }
-      await source.saveEvent(event, Boolean(currentEditor.event))
-      if (source !== repository.value) return
-      data.value.events = data.value.events.filter((row) => row.id !== event.id).concat(event)
-      selectDay(event.date)
-    } else {
-      await source.deleteEvent(currentEditor.id)
-      if (source !== repository.value) return
-      data.value.events = data.value.events.filter((row) => row.id !== currentEditor.id)
-    }
-    closeEditor()
-    void refresh(false)
-  } catch (error) {
-    if (source !== repository.value) return
-    editorError.value = error instanceof Error && error.message.startsWith('这条活动')
-      ? error.message
-      : draft ? '保存活动失败，请重试。' : '删除活动失败，请重试。'
-  } finally {
-    saving.value = false
-  }
-}
-
-const pendingChecks = ref(new Map<string, { date: string; habit: Habit; checked: boolean; token: symbol }>())
-const pendingHabits = computed(() =>
-  [...pendingChecks.value.values()].filter(({ date }) => date === selected.value).map(({ habit }) => habit),
-)
-const shownCheckins = computed(() => {
-  const items = data.value.checkins.filter((row) => !pendingChecks.value.has(row.date + ':' + row.habit))
-  for (const { date, habit, checked } of pendingChecks.value.values()) {
-    if (checked) items.push({ date, habit })
-  }
-  return items
-})
-
-async function changeCheckin(habit: Habit, checked: boolean) {
-  const source = repository.value
-  const date = selected.value
-  const pendingKey = date + ':' + habit
-  if (!source || date > today.value || pendingChecks.value.has(pendingKey)) return
-  if (!catalog.data.value.habits.some((item) => item.id === habit && item.startDate <= date)) return
-  writeError.value = ''
-  const update = { date, habit, checked, token: Symbol() }
-  pendingChecks.value.set(pendingKey, update)
-  try {
-    await source.setCheckin(date, habit, checked)
-    if (source !== repository.value) return
-    data.value.checkins = data.value.checkins.filter((row) => row.date !== date || row.habit !== habit)
-    if (checked) data.value.checkins.push({ date, habit })
-    void refresh(false)
-  } catch {
-    if (source === repository.value) writeError.value = '打卡保存失败，请重试。'
-  } finally {
-    if (pendingChecks.value.get(pendingKey)?.token === update.token) pendingChecks.value.delete(pendingKey)
-  }
-}
-
-watch(repository, () => pendingChecks.value.clear())
 
 let timer: number | undefined
 let lastRefresh = 0
-function updateToday() {
-  today.value = todayInBeijing()
-}
+
 function onReturn() {
   if (document.visibilityState === 'hidden') return
   updateToday()
@@ -311,13 +64,6 @@ function onReturn() {
 }
 
 onMounted(() => {
-  active = true
-  if (client) {
-    const { data: auth } = client.auth.onAuthStateChange((_event, nextSession) => {
-      window.setTimeout(() => { if (active) receiveSession(nextSession) }, 0)
-    })
-    unsubscribe = () => auth.subscription.unsubscribe()
-  }
   window.addEventListener('focus', onReturn)
   window.addEventListener('storage', onReturn)
   document.addEventListener('visibilitychange', onReturn)
@@ -325,9 +71,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  active = false
-  accessRequest++
-  unsubscribe?.()
   window.removeEventListener('focus', onReturn)
   window.removeEventListener('storage', onReturn)
   document.removeEventListener('visibilitychange', onReturn)
@@ -381,7 +124,7 @@ onUnmounted(() => {
         :loading="catalog.loading.value" :error="catalog.error.value" :busy="catalog.busy.value"
         :mutation-error="catalog.mutationError.value" @save="catalog.save" @retry="catalog.refresh()" />
       <CalendarView v-else :mode="mode" :selected="selected" :today="today"
-        :events="data.events" :checkins="shownCheckins" :pending-habits="pendingHabits"
+        :events="data.events" :checkins="shownCheckins" :checkins-ready="checkinsReady" :pending-habits="pendingHabits"
         :activities="catalog.data.value.activities" :habits="catalog.data.value.habits"
         @select="selectDay" @open-day="openDay" @navigate="navigate" @today="selectDay(today)"
         @edit="openEditor" @plan="planSelection" @check="changeCheckin" />
