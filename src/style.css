@@ -1005,11 +1005,6 @@ body {
   border-radius: 13px;
 }
 
-#app .access-panel code {
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
 #app .access-error, #app .planner-message {
   color: var(--dp-danger);
 }

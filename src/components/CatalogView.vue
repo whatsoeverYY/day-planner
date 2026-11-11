@@ -99,7 +99,7 @@ watch([() => props.catalog.activities, () => props.catalog.habits, () => props.b
     <header class="record-heading">
       <div>
         <h2 id="catalog-heading">项目配置</h2>
-        <p class="catalog-note">日程和打卡按固定 ID 关联。改名后，历史记录会显示新名称。</p>
+        <p class="catalog-note">改名后，历史记录也会显示新名称。</p>
       </div>
     </header>
 
@@ -146,7 +146,6 @@ watch([() => props.catalog.activities, () => props.catalog.habits, () => props.b
               <option v-for="(label, tone) in ACTIVITY_TONES" :key="tone" :value="tone">{{ label }}</option>
             </select>
           </label>
-          <p v-if="editor.id" class="catalog-id"><span>ID</span> <code>{{ editor.id }}</code></p>
           <p v-if="formError || (pendingSave && mutationError)" class="catalog-error" role="alert">
             {{ formError || mutationError }}
           </p>
@@ -166,7 +165,6 @@ watch([() => props.catalog.activities, () => props.catalog.habits, () => props.b
                 <span v-if="'tone' in item" class="tone-dot" :class="'tone-' + item.tone" aria-hidden="true"></span>
                 {{ item.name }}
               </p>
-              <p class="catalog-id"><span>ID</span> <code>{{ item.id }}</code></p>
               <p v-if="'startDate' in item && item.startDate !== '0001-01-01'" class="catalog-note">
                 从 <time :datetime="item.startDate">{{ item.startDate }}</time> 起打卡
               </p>
@@ -186,14 +184,9 @@ watch([() => props.catalog.activities, () => props.catalog.habits, () => props.b
 </template>
 
 <style scoped>
-.catalog-note,
-.catalog-id {
+.catalog-note {
   color: var(--dp-sub);
   font-size: 12px;
-}
-
-.catalog-id {
-  overflow-wrap: anywhere;
 }
 
 .catalog-error {

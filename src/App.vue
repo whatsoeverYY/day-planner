@@ -400,8 +400,7 @@ onUnmounted(() => {
       </template>
       <template v-else-if="access === 'denied'">
         <h2 id="access-title">当前账号尚未开通</h2>
-        <p>首次设置时，请按项目说明在 Supabase 中登记以下用户 ID。</p>
-        <code>{{ userId }}</code>
+        <p>首次设置时，请按项目说明在 Supabase 中开通当前账号。</p>
         <button class="planner-button" type="button" @click="verifyAccess">重新验证</button>
       </template>
       <template v-else-if="access === 'error'">

@@ -50,7 +50,7 @@ const eventConflict = computed(() => props.events.some((item) =>
 const activityOptions = computed<ActivityDefinition[]>(() => {
   const previousId = props.event?.activity
   if (!previousId || props.activities.some(({ id }) => id === previousId)) return props.activities
-  return [...props.activities, { id: previousId, name: previousId, tone: 'purple' }]
+  return [...props.activities, { id: previousId, name: '未命名活动', tone: 'purple' }]
 })
 const validActivity = computed(() => activityOptions.value.some(({ id }) => id === activity.value))
 const canSave = computed(() => validActivity.value && validDate.value && endAllowed(end.value))

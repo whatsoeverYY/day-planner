@@ -75,7 +75,7 @@ function dateNumber(date: string) {
 }
 
 function activityName(id: Activity) {
-  return activitiesById.value.get(id)?.name ?? id
+  return activitiesById.value.get(id)?.name ?? '未命名活动'
 }
 
 function activityToneClass(id: Activity) {

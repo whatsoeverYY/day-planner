@@ -99,7 +99,7 @@ function setDate(field: 'start' | 'end', event: Event) {
       <label class="record-field">
         <span>查看项目</span>
         <select :value="selectedValue" @change="setItem">
-          <option v-if="!selectedItem" :value="selectedValue" disabled>{{ query.item || '暂无可查看的项目' }}</option>
+          <option v-if="!selectedItem" :value="selectedValue" disabled>{{ query.item ? '项目暂不可用' : '暂无可查看的项目' }}</option>
           <optgroup v-if="activities.length" label="活动">
             <option v-for="item in activities" :key="item.id" :value="itemValue('activity', item.id)">{{ item.name }}</option>
           </optgroup>
