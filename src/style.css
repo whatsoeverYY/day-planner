@@ -839,6 +839,7 @@ body {
 }
 #app .record-field {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
   min-width: 0;
   font-size: 12px;
@@ -908,7 +909,6 @@ body {
   font-size: 11px;
   color: var(--dp-sub);
 }
-#app .record-note[data-done="true"] { color: var(--dp-accent); }
 #app .record-more { margin-top: 8px; }
 @media (max-width: 540px) {
   #app .records-panel {
@@ -917,6 +917,11 @@ body {
   }
   #app .record-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #app .record-field:first-child { grid-column: 1 / -1; }
+  #app .record-field input[type=date] {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+  }
 }
 @media (pointer: coarse) {
   #app .record-field :is(select,input) {
