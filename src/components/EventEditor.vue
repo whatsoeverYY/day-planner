@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { ActivityDefinition } from '../catalog'
-import { dayLabel, isDateKey, isWorkday, overlapsWork, weekday } from '../planner'
-import type { Activity, EventDraft, PlannerEvent, TimeSelection } from '../planner'
+import type { ActivityDefinition } from '../domain/catalog'
+import { dayLabel, isDateKey, isWorkday, overlapsWork, weekday } from '../domain/planner'
+import type { Activity, EventDraft, PlannerEvent, TimeSelection } from '../domain/planner'
 
 const props = defineProps<{
   date: string

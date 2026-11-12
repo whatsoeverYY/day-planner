@@ -7,8 +7,8 @@ import {
   type ActivityTone,
   type HabitDefinition,
   type PlannerCatalog,
-} from './catalog'
-import { todayInBeijing } from './planner'
+} from '../domain/catalog'
+import { todayInBeijing } from '../domain/planner'
 
 export interface CatalogRepository {
   read(): Promise<PlannerCatalog>

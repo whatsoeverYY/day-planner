@@ -1,5 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { localCatalogRepository } from './catalogRepository'
 import {
   isDateKey,
   todayInBeijing,
@@ -10,7 +9,8 @@ import {
   type PlannerData,
   type PlannerEvent,
   type RecordQuery,
-} from './planner'
+} from '../domain/planner'
+import { localCatalogRepository } from './catalogRepository'
 
 export interface PlannerRepository {
   read(range: DateRange | RecordQuery): Promise<PlannerData>

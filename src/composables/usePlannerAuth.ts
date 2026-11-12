@@ -1,22 +1,12 @@
-import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js'
+import type { Session } from '@supabase/supabase-js'
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { createPlannerAuthService } from '../services/plannerAuthService'
 
 type Access = 'checking' | 'login' | 'owner' | 'denied' | 'error' | 'config'
 
 export function usePlannerAuth() {
-  const url = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
-  const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || ''
-  const localMode = !url && !key
-  let client: SupabaseClient | null = null
-  if (url && key) {
-    try {
-      client = createClient(url, key, { auth: { flowType: 'pkce' } })
-    } catch {
-      // A malformed environment is shown in the setup state below.
-    }
-  }
-
-  const access = ref<Access>(localMode ? 'owner' : client ? 'checking' : 'config')
+  const { localMode, service } = createPlannerAuthService()
+  const access = ref<Access>(localMode ? 'owner' : service ? 'checking' : 'config')
   const session = shallowRef<Session | null>(null)
   const authError = ref('')
   const authBusy = ref(false)
@@ -27,14 +17,13 @@ export function usePlannerAuth() {
   let active = false
 
   async function verifyAccess() {
-    if (!client || !session.value) return
+    if (!service || !session.value) return
     const request = ++accessRequest
     access.value = 'checking'
     authError.value = ''
     try {
-      const { data, error } = await client.rpc('planner_has_access')
-      if (error) throw error
-      if (request === accessRequest) access.value = data === true ? 'owner' : 'denied'
+      const hasAccess = await service.hasAccess()
+      if (request === accessRequest) access.value = hasAccess ? 'owner' : 'denied'
     } catch {
       if (request !== accessRequest) return
       access.value = 'error'
@@ -54,13 +43,11 @@ export function usePlannerAuth() {
   }
 
   async function signIn() {
-    if (!client || authBusy.value) return
+    if (!service || authBusy.value) return
     authBusy.value = true
     authError.value = ''
     try {
-      const redirectTo = new URL(import.meta.env.BASE_URL, window.location.href).href
-      const { error } = await client.auth.signInWithOAuth({ provider: 'github', options: { redirectTo } })
-      if (error) throw error
+      await service.signIn()
     } catch {
       authError.value = '无法打开 GitHub 登录，请稍后重试。'
     } finally {
@@ -69,12 +56,11 @@ export function usePlannerAuth() {
   }
 
   async function signOut() {
-    if (!client || authBusy.value) return
+    if (!service || authBusy.value) return
     authBusy.value = true
     authError.value = ''
     try {
-      const { error } = await client.auth.signOut({ scope: 'local' })
-      if (error) throw error
+      await service.signOut()
       receiveSession(null)
     } catch {
       authError.value = '退出登录失败，请重试。'
@@ -85,12 +71,9 @@ export function usePlannerAuth() {
 
   onMounted(() => {
     active = true
-    if (client) {
-      const { data: auth } = client.auth.onAuthStateChange((_event, nextSession) => {
-        window.setTimeout(() => { if (active) receiveSession(nextSession) }, 0)
-      })
-      unsubscribe = () => auth.subscription.unsubscribe()
-    }
+    unsubscribe = service?.subscribe(nextSession => {
+      window.setTimeout(() => { if (active) receiveSession(nextSession) }, 0)
+    })
   })
 
   onUnmounted(() => {
@@ -99,5 +82,16 @@ export function usePlannerAuth() {
     unsubscribe?.()
   })
 
-  return { localMode, client, access, session, userId, authError, authBusy, verifyAccess, signIn, signOut }
+  return {
+    localMode,
+    client: service?.client ?? null,
+    access,
+    session,
+    userId,
+    authError,
+    authBusy,
+    verifyAccess,
+    signIn,
+    signOut,
+  }
 }

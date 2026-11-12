@@ -1,11 +1,11 @@
 import { computed, ref, shallowRef, watch, type Ref } from 'vue'
-import type { PlannerCatalog } from './catalog'
+import type { PlannerCatalog } from '../domain/catalog'
 import {
   isDateKey, monthDays, shiftDay, shiftMonth, todayInBeijing, validateEvent, weekDays,
   type DateRange, type EventDraft, type Habit, type PlannerData, type PlannerEvent,
   type PlannerMode, type RecordQuery, type TimeSelection,
-} from './planner.ts'
-import type { PlannerRepository } from './repository'
+} from '../domain/planner.ts'
+import type { PlannerRepository } from '../repositories/plannerRepository'
 
 export function usePlanner(
   repository: Readonly<Ref<PlannerRepository | null>>,

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { ACTIVITY_TONES, MAX_ITEM_NAME_LENGTH } from '../catalog'
+import { ACTIVITY_TONES, MAX_ITEM_NAME_LENGTH } from '../domain/catalog'
 import type {
   ActivityDefinition, ActivityTone, CatalogChange, HabitDefinition, PlannerCatalog,
-} from '../catalog'
+} from '../domain/catalog'
 
 const props = defineProps<{
   catalog: PlannerCatalog

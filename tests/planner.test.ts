@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { monthDays, overlapsWork, shiftMonth, todayInBeijing, validateEvent, weekDays } from '../src/planner.ts'
+import { monthDays, overlapsWork, shiftMonth, todayInBeijing, validateEvent, weekDays } from '../src/domain/planner.ts'
 
 test('only positive intersections with Monday–Friday work windows need an exception', () => {
   const monday = '2026-11-09'

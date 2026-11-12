@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { challengeProgress, validateChallenge } from '../src/challenges.ts'
+import { challengeProgress, validateChallenge } from '../src/domain/challenges.ts'
 
 const challenge = { id: 'test', title: '每天练琴', targetDays: 3, startDate: '2026-11-01' }
 

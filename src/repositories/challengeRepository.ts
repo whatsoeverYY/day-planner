@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { isDateKey, todayInBeijing } from './planner'
-import { validateChallenge, type Challenge, type ChallengeData } from './challenges'
+import { validateChallenge, type Challenge, type ChallengeData } from '../domain/challenges'
+import { isDateKey, todayInBeijing } from '../domain/planner'
 
 export interface ChallengeRepository {
   read(): Promise<ChallengeData>

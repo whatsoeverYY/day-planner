@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
 import { effectScope, nextTick, shallowRef } from 'vue'
-import { defaultCatalog } from '../src/catalog.ts'
-import { shiftDay, type DateRange, type Habit, type PlannerData, type RecordQuery } from '../src/planner.ts'
-import type { PlannerRepository } from '../src/repository.ts'
-import { usePlanner } from '../src/usePlanner.ts'
+import { usePlanner } from '../src/composables/usePlanner.ts'
+import { defaultCatalog } from '../src/domain/catalog.ts'
+import { shiftDay, type DateRange, type Habit, type PlannerData, type RecordQuery } from '../src/domain/planner.ts'
+import type { PlannerRepository } from '../src/repositories/plannerRepository.ts'
 
 function pendingRead(query: DateRange | RecordQuery) {
   let resolve!: (value: PlannerData) => void

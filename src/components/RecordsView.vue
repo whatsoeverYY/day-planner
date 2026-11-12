@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { ActivityDefinition, HabitDefinition } from '../catalog'
+import type { ActivityDefinition, HabitDefinition } from '../domain/catalog'
 import {
   WEEKDAYS, clock, dayCount, dayLabel, durationLabel, isDateKey, shiftDay, weekday,
-} from '../planner'
-import type { Checkin, PlannerEvent, RecordQuery } from '../planner'
+} from '../domain/planner'
+import type { Checkin, PlannerEvent, RecordQuery } from '../domain/planner'
 
 const props = defineProps<{
   query: RecordQuery

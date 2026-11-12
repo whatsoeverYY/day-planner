@@ -4,9 +4,9 @@ import {
   MAX_CHALLENGE_DAYS,
   challengeProgress,
   validateChallenge,
-} from '../challenges'
-import type { Challenge, ChallengeData, ChallengeDraft } from '../challenges'
-import { dayCount, isDateKey, shiftDay } from '../planner'
+} from '../domain/challenges'
+import type { Challenge, ChallengeData, ChallengeDraft } from '../domain/challenges'
+import { dayCount, isDateKey, shiftDay } from '../domain/planner'
 
 const props = defineProps<{
   data: ChallengeData

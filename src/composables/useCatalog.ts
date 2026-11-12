@@ -1,7 +1,7 @@
 import { ref, shallowRef, watch, type Ref } from 'vue'
-import type { CatalogRepository } from './catalogRepository'
-import { defaultCatalog, validateItemName, type CatalogChange } from './catalog'
-import { todayInBeijing } from './planner'
+import { defaultCatalog, validateItemName, type CatalogChange } from '../domain/catalog'
+import { todayInBeijing } from '../domain/planner'
+import type { CatalogRepository } from '../repositories/catalogRepository'
 
 const migrationRequired = '请先在 Supabase 中运行活动和打卡项目的配置迁移。'
 

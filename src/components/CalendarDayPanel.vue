@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { BookOpen, CircleCheck, Footprints } from '@lucide/vue'
-import type { HabitDefinition } from '../catalog'
-import { WORK_BLOCKS, clock, dayLabel, isWorkday, type Activity, type Habit, type PlannerEvent } from '../planner'
+import type { HabitDefinition } from '../domain/catalog'
+import { WORK_BLOCKS, clock, dayLabel, isWorkday, type Activity, type Habit, type PlannerEvent } from '../domain/planner'
 
 const props = defineProps<{
   day: {

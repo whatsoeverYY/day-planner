@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { placeTimelineEvents } from '../calendarLayout'
+import { placeTimelineEvents } from './calendarLayout'
 import {
   WORK_BLOCKS, clock, dayLabel, isWorkday, overlapsWork,
   type Activity, type PlannerEvent, type TimeSelection,
-} from '../planner'
+} from '../domain/planner'
 
 const props = defineProps<{
   mode: 'day' | 'week'

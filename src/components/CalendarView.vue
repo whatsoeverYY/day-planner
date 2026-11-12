@@ -2,7 +2,7 @@
 import { computed, nextTick, ref } from 'vue'
 import CalendarDayPanel from './CalendarDayPanel.vue'
 import CalendarTimeline from './CalendarTimeline.vue'
-import type { ActivityDefinition, HabitDefinition } from '../catalog'
+import type { ActivityDefinition, HabitDefinition } from '../domain/catalog'
 import {
   clock,
   dayLabel,
@@ -14,7 +14,7 @@ import {
   type Habit,
   type PlannerEvent,
   type TimeSelection,
-} from '../planner'
+} from '../domain/planner'
 
 const props = defineProps<{
   mode: 'day' | 'week' | 'month'

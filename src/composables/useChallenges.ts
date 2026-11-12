@@ -1,6 +1,6 @@
 import { ref, shallowRef, watch, type Ref } from 'vue'
-import type { ChallengeRepository } from './challengeRepository'
-import type { Challenge, ChallengeData, ChallengeDraft } from './challenges'
+import type { Challenge, ChallengeData, ChallengeDraft } from '../domain/challenges'
+import type { ChallengeRepository } from '../repositories/challengeRepository'
 
 const emptyData = (): ChallengeData => ({ challenges: [], checkins: [] })
 

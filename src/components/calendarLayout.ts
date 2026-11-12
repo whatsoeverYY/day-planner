@@ -1,4 +1,4 @@
-import type { PlannerEvent } from './planner'
+import type { PlannerEvent } from '../domain/planner'
 
 // Events are ordered by start time, then end time.
 export function placeTimelineEvents(
