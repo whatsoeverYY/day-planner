@@ -31,13 +31,13 @@ const repositories = computed(() => {
 const catalog = useCatalog(computed(() => repositories.value?.catalog ?? null))
 const {
   today, selected, mode, calendarVisible, recordQuery,
-  data, loading, readError, writeError, checkinsReady, pendingHabits, shownCheckins,
+  data, loading, readError, writeError, checkinsReady, pendingHabits, shownCheckins, checkinRevision,
   editor, editorEvents, editorError, saving,
   refresh, updateToday, selectDay, openDay, navigate,
   openEditor, planSelection, closeEditor, loadEditorDate, changeEvent, changeCheckin,
 } = usePlanner(computed(() => repositories.value?.planner ?? null), catalog.data)
 const challengesVisible = computed(() => mode.value === 'challenges')
-const challenges = useChallenges(computed(() => repositories.value?.challenges ?? null), challengesVisible)
+const challenges = useChallenges(repositories, challengesVisible, today, checkinRevision)
 
 watch(userId, closeEditor, { flush: 'sync' })
 
@@ -118,8 +118,9 @@ onUnmounted(() => {
       <ChallengesView v-else-if="mode === 'challenges'" :data="challenges.data.value" :today="today"
         :loading="challenges.loading.value" :error="challenges.error.value"
         :mutation-error="challenges.mutationError.value" :busy="challenges.busy.value"
+        :habits="catalog.data.value.habits" :catalog-loading="catalog.loading.value" :catalog-error="catalog.error.value"
         @create="challenges.create" @remove="challenges.remove" @check="challenges.check"
-        @retry="challenges.refresh()" />
+        @retry="challenges.refresh()" @retry-catalog="catalog.refresh()" />
       <CatalogView v-else-if="mode === 'catalog'" :catalog="catalog.data.value"
         :loading="catalog.loading.value" :error="catalog.error.value" :busy="catalog.busy.value"
         :mutation-error="catalog.mutationError.value" @save="catalog.save" @retry="catalog.refresh()" />

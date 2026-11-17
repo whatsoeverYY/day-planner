@@ -158,6 +158,7 @@ export function usePlanner(
   }
 
   const pendingChecks = ref(new Map<string, { date: string; habit: Habit; checked: boolean; token: symbol }>())
+  const checkinRevision = ref(0)
   const pendingHabits = computed(() =>
     [...pendingChecks.value.values()].filter(({ date }) => date === selected.value).map(({ habit }) => habit),
   )
@@ -183,6 +184,7 @@ export function usePlanner(
       if (source !== repository.value) return
       data.value.checkins = data.value.checkins.filter((row) => row.date !== date || row.habit !== habit)
       if (checked) data.value.checkins.push({ date, habit })
+      checkinRevision.value++
       void refresh(false)
     } catch {
       if (source === repository.value) writeError.value = '打卡保存失败，请重试。'
@@ -199,7 +201,7 @@ export function usePlanner(
 
   return {
     today, selected, mode, calendarVisible, recordQuery,
-    data, loading, readError, writeError, checkinsReady, pendingHabits, shownCheckins,
+    data, loading, readError, writeError, checkinsReady, pendingHabits, shownCheckins, checkinRevision,
     editor, editorEvents, editorError, saving,
     refresh, updateToday, selectDay, openDay, navigate,
     openEditor, planSelection, closeEditor, loadEditorDate, changeEvent, changeCheckin,

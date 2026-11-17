@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import type { HabitDefinition } from '../domain/catalog'
 import {
   MAX_CHALLENGE_DAYS,
   challengeProgress,
@@ -15,6 +16,9 @@ const props = defineProps<{
   error: string
   mutationError: string
   busy: boolean
+  habits: HabitDefinition[]
+  catalogLoading: boolean
+  catalogError: string
 }>()
 
 const emit = defineEmits<{
@@ -22,18 +26,22 @@ const emit = defineEmits<{
   remove: [id: string]
   check: [id: string, date: string, checked: boolean]
   retry: []
+  retryCatalog: []
 }>()
 
 const creating = ref(false)
-const title = ref('')
+const habitId = ref('')
 const targetDays = ref<number | string>(7)
 const startDate = ref(props.today)
 const formError = ref('')
-const titleInput = ref<HTMLInputElement | null>(null)
+const habitSelect = ref<HTMLSelectElement | null>(null)
 const createButton = ref<HTMLButtonElement | null>(null)
 let pendingCreate: { draft: ChallengeDraft; existing: Set<string> } | undefined
 const confirming = ref<string | null>(null)
 const checkDates = ref<Record<string, string>>({})
+
+const catalogUnavailable = computed(() => props.catalogLoading || Boolean(props.catalogError) || !props.habits.length)
+const selectedHabit = computed(() => props.habits.find(({ id }) => id === habitId.value))
 
 const cards = computed(() => {
   const checkinsByChallenge = new Map<string, Set<string>>()
@@ -63,13 +71,13 @@ const cards = computed(() => {
 })
 
 async function openCreate() {
-  title.value = ''
+  habitId.value = ''
   targetDays.value = 7
   startDate.value = props.today
   formError.value = ''
   creating.value = true
   await nextTick()
-  titleInput.value?.focus()
+  habitSelect.value?.focus()
 }
 
 async function closeCreate() {
@@ -80,20 +88,27 @@ async function closeCreate() {
 }
 
 function createChallenge() {
-  if (props.busy) return
-  const draft = { title: title.value.trim(), targetDays: Number(targetDays.value), startDate: startDate.value }
+  const habit = selectedHabit.value
+  if (props.busy || catalogUnavailable.value || !habit) return
+  const draft: ChallengeDraft = {
+    habitId: habit.id,
+    title: habit.name.trim(),
+    targetDays: Number(targetDays.value),
+    startDate: startDate.value,
+  }
   formError.value = validateChallenge(draft)
   if (formError.value) return
   pendingCreate = { draft, existing: new Set(props.data.challenges.map(({ id }) => id)) }
   emit('create', draft)
 }
 
-watch(() => props.data.challenges.length, () => {
+watch(() => props.data.challenges, (challenges) => {
   const pending = pendingCreate
   if (!pending) return
   const { draft, existing } = pending
-  if (props.data.challenges.some((item) =>
+  if (challenges.some((item) =>
     !existing.has(item.id) &&
+    item.habitId === draft.habitId &&
     item.title === draft.title && item.targetDays === draft.targetDays && item.startDate === draft.startDate,
   )) {
     void closeCreate()
@@ -131,23 +146,31 @@ function toggleCheck(challenge: Challenge & { date: string; checked: boolean }, 
         ref="createButton"
         type="button"
         class="planner-button primary"
-        :disabled="busy || loading || Boolean(error)"
+        :disabled="busy || loading || Boolean(error) || catalogUnavailable"
         @click="openCreate"
       >新建挑战</button>
     </header>
 
+    <p v-if="catalogLoading" class="challenge-note" role="status">正在读取打卡项目…</p>
+    <div v-else-if="catalogError" class="challenge-error">
+      <p role="alert">{{ catalogError }}</p>
+      <button type="button" class="planner-button" @click="emit('retryCatalog')">重新读取项目</button>
+    </div>
+    <p v-else-if="!habits.length" class="challenge-note">请先在「配置」中添加打卡项目。</p>
+
     <form v-if="creating" class="challenge-form" :aria-busy="busy" @submit.prevent="createChallenge">
       <div class="challenge-fields">
         <label class="record-field">
-          <span>挑战名称</span>
-          <input
-            ref="titleInput"
-            v-model="title"
-            type="text"
-            placeholder="每天阅读 20 分钟"
-            :disabled="busy"
+          <span>挑战项目</span>
+          <select
+            ref="habitSelect"
+            v-model="habitId"
+            :disabled="busy || catalogUnavailable"
             required
           >
+            <option disabled value="">请选择打卡项目</option>
+            <option v-for="habit in habits" :key="habit.id" :value="habit.id">{{ habit.name }}</option>
+          </select>
         </label>
         <label class="record-field">
           <span>连续目标天数</span>
@@ -176,7 +199,7 @@ function toggleCheck(challenge: Challenge & { date: string; checked: boolean }, 
       <p v-if="formError" class="challenge-error" role="alert">{{ formError }}</p>
       <div class="challenge-actions">
         <button type="button" class="planner-button" :disabled="busy" @click="closeCreate">取消</button>
-        <button type="submit" class="planner-button primary" :disabled="busy">创建挑战</button>
+        <button type="submit" class="planner-button primary" :disabled="busy || catalogUnavailable || !selectedHabit">创建挑战</button>
       </div>
     </form>
 
@@ -186,7 +209,7 @@ function toggleCheck(challenge: Challenge & { date: string; checked: boolean }, 
       <p role="alert">{{ error }}</p>
       <button type="button" class="planner-button" :disabled="loading" @click="emit('retry')">重试</button>
     </div>
-    <p v-else-if="!cards.length && !creating" class="challenge-empty">还没有挑战。新建挑战后，就可以开始记录。</p>
+    <p v-else-if="!cards.length && !creating" class="challenge-empty">还没有挑战。</p>
 
     <div v-if="cards.length" class="challenge-list">
       <article v-for="item in cards" :key="item.id" class="challenge-card" :aria-labelledby="'challenge-title-' + item.id">
@@ -212,8 +235,9 @@ function toggleCheck(challenge: Challenge & { date: string; checked: boolean }, 
           :aria-label="item.title + ' 挑战进度'"
         ></progress>
 
+        <p v-if="item.habitId" class="challenge-note">从开始日期起，日历中的打卡自动计入此挑战。</p>
         <template v-if="item.started">
-          <div class="challenge-check">
+          <div v-if="!item.habitId" class="challenge-check">
             <label class="record-field">
               <span>打卡日期</span>
               <input
@@ -238,11 +262,11 @@ function toggleCheck(challenge: Challenge & { date: string; checked: boolean }, 
             </li>
           </ul>
         </template>
-        <p v-else class="challenge-note">到开始日期后可以打卡。</p>
+        <p v-else-if="!item.habitId" class="challenge-note">到开始日期后可以打卡。</p>
 
         <div class="challenge-actions">
           <template v-if="confirming === item.id">
-            <p class="challenge-note">删除后会一并清除挑战打卡。</p>
+            <p class="challenge-note">{{ item.habitId ? '确认删除此挑战？' : '删除后会一并清除挑战打卡。' }}</p>
             <button type="button" class="planner-button" :disabled="busy" @click="confirming = null">取消</button>
             <button
               type="button"

@@ -3,15 +3,22 @@ import { isDateKey, shiftDay } from './planner.ts'
 export const MAX_CHALLENGE_DAYS = 3650
 export const MAX_CHALLENGE_TITLE_LENGTH = 80
 
-export interface ChallengeDraft {
+interface ChallengeSettings {
   title: string
   targetDays: number
   startDate: string
 }
 
-export interface Challenge extends ChallengeDraft {
-  id: string
+export interface ChallengeDraft extends ChallengeSettings {
+  habitId: string
 }
+
+export interface Challenge extends ChallengeSettings {
+  id: string
+  habitId?: string
+}
+
+export type NewChallenge = ChallengeDraft & { id: string }
 
 export interface ChallengeCheckin {
   challengeId: string
@@ -23,7 +30,7 @@ export interface ChallengeData {
   checkins: ChallengeCheckin[]
 }
 
-export function validateChallenge(draft: ChallengeDraft) {
+export function validateChallenge(draft: ChallengeSettings) {
   const titleLength = [...draft.title.trim()].length
   if (!titleLength || titleLength > MAX_CHALLENGE_TITLE_LENGTH) {
     return `挑战名称须为 1–${MAX_CHALLENGE_TITLE_LENGTH} 个字符。`

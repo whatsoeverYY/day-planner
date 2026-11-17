@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { validateChallenge, type Challenge, type ChallengeData } from '../domain/challenges'
+import { validateChallenge, type ChallengeData, type NewChallenge } from '../domain/challenges'
 import { isDateKey, todayInBeijing } from '../domain/planner'
+import { localCatalogRepository } from './catalogRepository'
 
 export interface ChallengeRepository {
   read(): Promise<ChallengeData>
-  create(challenge: Challenge): Promise<void>
+  create(challenge: NewChallenge): Promise<void>
   remove(id: string): Promise<void>
   setCheckin(id: string, date: string, checked: boolean): Promise<void>
 }
@@ -22,9 +23,10 @@ function getLocalData(): ChallengeData {
   return data
 }
 
-function normalizedChallenge(challenge: Challenge) {
+function normalizedChallenge(challenge: NewChallenge) {
   const error = validateChallenge(challenge)
   if (error) throw new Error(error)
+  if (!challenge.habitId) throw new Error('请选择已配置的打卡项目。')
   return { ...challenge, title: challenge.title.trim() }
 }
 
@@ -39,6 +41,8 @@ export const localChallengeRepository: ChallengeRepository = {
   },
   async create(challenge) {
     const normalized = normalizedChallenge(challenge)
+    const { habits } = await localCatalogRepository.read()
+    if (!habits.some(({ id }) => id === normalized.habitId)) throw new Error('打卡项目不存在。')
     const data = getLocalData()
     if (data.challenges.some(({ id }) => id === normalized.id)) return
     data.challenges.push(normalized)
@@ -54,6 +58,7 @@ export const localChallengeRepository: ChallengeRepository = {
     validateCheckinDate(date)
     const data = getLocalData()
     const challenge = data.challenges.find((row) => row.id === id)
+    if (challenge?.habitId) throw new Error('请在日历中更新这个项目的打卡记录。')
     if (checked) {
       if (!challenge) throw new Error('挑战已删除，请刷新后重试。')
       if (date < challenge.startDate) throw new Error('请选择挑战开始当天或之后的日期。')
@@ -67,6 +72,7 @@ export const localChallengeRepository: ChallengeRepository = {
 interface ChallengeRow {
   id: string
   title: string
+  habit_id: string | null
   target_days: number
   start_date: string
 }
@@ -97,7 +103,7 @@ export function cloudChallengeRepository(client: SupabaseClient, userId: string)
       const [challenges, checkins] = await Promise.all([
         collectRows<ChallengeRow>((cursor) => {
           let query = client.from('planner_challenges')
-            .select('id,title,target_days,start_date')
+            .select('id,title,habit_id,target_days,start_date')
             .eq('user_id', userId)
             .order('id')
             .limit(pageSize)
@@ -122,6 +128,7 @@ export function cloudChallengeRepository(client: SupabaseClient, userId: string)
         challenges: challenges.map((row) => ({
           id: row.id,
           title: row.title,
+          habitId: row.habit_id ?? undefined,
           targetDays: row.target_days,
           startDate: row.start_date,
         })),
@@ -129,9 +136,9 @@ export function cloudChallengeRepository(client: SupabaseClient, userId: string)
       }
     },
     async create(challenge) {
-      const { id, title, targetDays, startDate } = normalizedChallenge(challenge)
+      const { id, title, habitId, targetDays, startDate } = normalizedChallenge(challenge)
       const { error } = await client.from('planner_challenges').upsert({
-        id, user_id: userId, title, target_days: targetDays, start_date: startDate,
+        id, user_id: userId, title, habit_id: habitId, target_days: targetDays, start_date: startDate,
       }, { onConflict: 'id', ignoreDuplicates: true })
       if (error) throw error
     },

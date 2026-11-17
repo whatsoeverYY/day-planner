@@ -4,7 +4,7 @@
 
 在周历时间轴点一个时间格，或沿同一天拖选多个 30 分钟格，即可打开预填时段的新增活动表单。手机可在「当天」展开「按时间规划」。
 
-「挑战」可设置名称、开始日期和目标连续天数。每天单独打卡，也可补打或撤销。漏一天后从下一次打卡重新累计，任意一段连续打卡达到目标即达成挑战。
+新建「挑战」时，从「配置」中已有的打卡项目里选择一项，再设置开始日期和目标连续天数。挑战标题使用创建时的项目名称。从开始日期起，该项目的日常打卡会自动计入挑战，补打或撤销后也会重新计算。漏一天后从下一次打卡重新累计，任意一段连续打卡达到目标即达成挑战。旧版手动挑战使用各自的打卡记录。
 
 在「配置」中分别新增或编辑活动类型和打卡项目。固定 ID 用于关联日程和历史打卡，改名后各视图会显示新名称。活动可从七种日历配色中选择，新增打卡项目从创建当天开始计入统计。
 
@@ -23,7 +23,7 @@ npm run dev
 
 ## 配置 Supabase
 
-1. 创建一个 [Supabase 项目](https://supabase.com/dashboard/projects)。在 SQL Editor 依次执行[基础迁移](supabase/migrations/20261110000000_create_planner.sql)、[挑战迁移](supabase/migrations/20261110010000_create_challenges.sql)、[配置迁移](supabase/migrations/20261110020000_create_item_catalog.sql)和[配色迁移](supabase/migrations/20261110030000_expand_activity_tones.sql)。已有项目按顺序补跑尚未执行的迁移。配置迁移沿用已有活动与打卡 ID。
+1. 创建一个 [Supabase 项目](https://supabase.com/dashboard/projects)。在 SQL Editor 依次执行[基础迁移](supabase/migrations/20261110000000_create_planner.sql)、[挑战迁移](supabase/migrations/20261110010000_create_challenges.sql)、[配置迁移](supabase/migrations/20261110020000_create_item_catalog.sql)、[配色迁移](supabase/migrations/20261110030000_expand_activity_tones.sql)和[挑战关联迁移](supabase/migrations/20261110040000_link_challenges_to_habits.sql)。已有项目按顺序补跑尚未执行的迁移。配置迁移沿用已有活动与打卡 ID。
 2. 在 [GitHub OAuth Apps](https://github.com/settings/developers) 新建 OAuth App。Homepage URL 填将使用的站点地址，例如 `https://<你的用户名>.github.io/day-planner/`。Authorization callback URL 填 Supabase 的 GitHub provider 页面给出的地址，通常是 `https://<project-ref>.supabase.co/auth/v1/callback`。
 3. 在 Supabase 的 **Authentication → Sign In / Providers** 启用 GitHub，填 Client ID 和 Client Secret。Client Secret 只保存在 Supabase。个人项目保留 GitHub 登录，关闭其他登录方式和匿名登录。
 4. 在 **Authentication → URL Configuration** 将 Site URL 设为 GitHub Pages 站点地址。把带结尾斜杠的站点地址和实际用于本机调试的地址加入 Redirect URLs，例如 `http://localhost:5173/`。如果终端实际使用 `127.0.0.1` 或不同端口，也把那个完整地址加进去。
